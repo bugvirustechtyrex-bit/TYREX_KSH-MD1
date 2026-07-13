@@ -1,15 +1,32 @@
 {
-  "name": "YTREX_KSH-MD1",
-  "description": "WhatsApp Bot by TYREX",
+  "name": "YTREX-KSH-MD1",
+  "description": "WhatsApp Bot by TYREX | Baileys MD Bot",
   "repository": "https://github.com/bugvirustechtyrex-bit/TYREX_KSH-MD1",
+  "keywords": ["whatsapp", "bot", "baileys"],
   "env": {
     "PHONE_NUMBER": {
-      "description": "Your WhatsApp number with country code. No + or spaces",
-      "required": true
+      "description": "Your WhatsApp number with country code. No + or spaces. Ex: 254743760083",
+      "required": true,
+      "value": "254743760083"
+    },
+    "NODE_ENV": {
+      "description": "Environment",
+      "value": "production"
     }
   },
   "buildpacks": [
-    {"url": "heroku/nodejs"},
-    {"url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest"}
-  ]
+    {
+      "url": "heroku/nodejs"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest"
+    }
+  ],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "stack": "heroku-22"
 }
