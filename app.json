@@ -1,136 +1,40 @@
-const fs = require('fs')
-const chalk = require('chalk')
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys')
-const { imageToWebp, videoToWebp } = require('./lib/exif')
-
-let prefix = '.'
-let owner = JSON.parse(fs.readFileSync('./data/owner.json'))
-let afk = {}
-
-const handleMessages = async (YTREX, chatUpdate, store) => {
-    try {
-        let m = chatUpdate.messages[0]
-        if (!m) return
-        m = YTREX.serializeM(m)
-        if (!m.message) return
-        if (m.key.remoteJid === 'status@broadcast') return
-
-        const body = m.body || m.mtype === 'conversation'? m.message.conversation : m.mtype === 'imageMessage'? m.message.imageMessage.caption : m.mtype === 'videoMessage'? m.message.videoMessage.caption : m.mtype === 'extendedTextMessage'? m.message.extendedTextMessage.text : ''
-        const budy = (typeof body === 'string')? body : ''
-        const command = budy.startsWith(prefix)? budy.slice(prefix.length).trim().split(' ')[0].toLowerCase() : ''
-        const args = budy.trim().split(/ +/).slice(1)
-        const text = args.join(' ')
-        const isCmd = budy.startsWith(prefix)
-        const isOwner = owner.includes(m.sender.split('@')[0])
-        const isGroup = m.chat.endsWith('@g.us')
-        const groupMetadata = isGroup? await YTREX.groupMetadata(m.chat) : ''
-        const groupName = isGroup? groupMetadata.subject : ''
-        const groupMembers = isGroup? groupMetadata.participants : ''
-        const groupAdmins = isGroup? groupMembers.filter(v => v.admin!== null).map(v => v.id) : []
-        const isBotAdmin = isGroup? groupAdmins.includes(YTREX.user.id.split(':')[0] + '@s.whatsapp.net') : false
-        const isAdmin = isGroup? groupAdmins.includes(m.sender) : false
-
-        // AFK Check
-        if (m.mentionedJid) {
-            for (let jid of m.mentionedJid) {
-                if (afk[jid]) {
-                    await m.reply(`⚡ *${YTREX.getName(jid)}* is AFK: ${afk[jid].reason}`)
-                }
-            }
-        }
-        if (afk[m.sender] &&!command) {
-            delete afk[m.sender]
-            await m.reply(`⚡ You are no longer AFK`)
-        }
-
-        if (!isCmd) return
-
-        switch(command) {
-
-        // ===== MENU =====
-        case 'menu':
-        case 'help':
-            let menu = `
-╭───「 *${global.botname}* 」───
-│ ${global.themeemoji} *OWNER*
-│ •.owner •.restart •.bc
-│ ${global.themeemoji} *GROUP*
-│ •.welcome •.antilink •.tagall •.promote •.demote
-│ ${global.themeemoji} *DOWNLOADER*
-│ •.yt <url> •.tiktok <url> •.ig <url>
-│ ${global.themeemoji} *TOOLS*
-│ •.sticker •.toimg •.qc <text> •.afk <reason>
-│ ${global.themeemoji} *INFO*
-│ •.ping •.owner
-╰───「 *Owner: ${global.ownername}* 」───
-`
-            await YTREX.sendMessage(m.chat, { text: menu }, { quoted: m })
-            break
-
-        case 'owner':
-            await YTREX.sendContact(m.chat, owner, m)
-            await m.reply(`👑 *Owner:* ${global.ownername}\nBot: ${global.botname}`)
-            break
-
-        case 'ping':
-            let start = new Date().getTime()
-            let msg = await m.reply('⚡ Pinging...')
-            let end = new Date().getTime()
-            await YTREX.sendMessage(m.chat, { text: `Pong: ${end - start}ms`, edit: msg.key })
-            break
-
-        case 'restart':
-            if (!isOwner) return m.reply('❌ Owner only')
-            await m.reply('🔄 Restarting bot...')
-            process.exit(1)
-            break
-
-        case 'bc':
-            if (!isOwner) return m.reply('❌ Owner only')
-            if (!text) return m.reply('Example:.bc Hello guys')
-            let chats = await YTREX.groupFetchAllParticipating()
-            for (let chat of Object.keys(chats)) {
-                await YTREX.sendMessage(chat, { text: `📢 *BROADCAST*\n\n${text}` })
-            }
-            await m.reply('✅ Broadcast sent')
-            break
-
-        // ===== GROUP =====
-        case 'tagall':
-            if (!isGroup) return m.reply('❌ Group only')
-            if (!isAdmin) return m.reply('❌ Admin only')
-            let members = groupMembers.map(v => v.id)
-            await YTREX.sendMessage(m.chat, { text: `*Tag All*\n\n${text}`, mentions: members }, { quoted: m })
-            break
-
-        case 'promote':
-            if (!isGroup) return m.reply('❌ Group only')
-            if (!isAdmin) return m.reply('❌ Admin only')
-            let promote = m.mentionedJid[0]
-            await YTREX.groupParticipantsUpdate(m.chat, [promote], 'promote')
-            await m.reply('✅ Promoted')
-            break
-
-        case 'demote':
-            if (!isGroup) return m.reply('❌ Group only')
-            if (!isAdmin) return m.reply('❌ Admin only')
-            let demote = m.mentionedJid[0]
-            await YTREX.groupParticipantsUpdate(m.chat, [demote], 'demote')
-            await m.reply('✅ Demoted')
-            break
-
-        // ===== TOOLS =====
-        case 'sticker':
-            if (!m.quoted &&!m.message.imageMessage &&!m.message.videoMessage) return m.reply('Reply to image/video')
-            let media = await downloadContentFromMessage(m.quoted || m, m.quoted?.mtype.replace('Message', '') || m.mtype.replace('Message', ''))
-            let buffer = Buffer.from([])
-            for await (const chunk of media) buffer = Buffer.concat([buffer, chunk])
-            let sticker = await imageToWebp(buffer)
-            await YTREX.sendMessage(m.chat, { sticker: sticker }, { quoted: m })
-            break
-
-        case 'toimg':
-            if (!m.quoted?.mtype.includes('sticker')) return m.reply('Reply to sticker')
-            let img = await downloadContentFromMessage(m.quoted, 'sticker')
-            let imgBuffer = Buffer.from([])
-            for await (const chunk of img) imgBuffer = Buffer.concat(
+{
+  "name": "YTREX_KSH-MD1",
+  "description": "WhatsApp Bot by TYREX | Baileys MD Bot with Pairing Code",
+  "repository": "https://github.com/bugvirustechtyrex-bit/TYREX_KSH-MD1",
+  "keywords": ["whatsapp", "bot", "baileys", "ytrex", "md"],
+  "logo": "https://i.imgur.com/8Km9tLL.png",
+  "env": {
+    "PHONE_NUMBER": {
+      "description": "Your WhatsApp number with country code. No + or spaces. Example: 254712345678",
+      "required": true
+    },
+    "OWNER_NAME": {
+      "description": "Bot Owner Name",
+      "value": "TYREX"
+    },
+    "BOT_NAME": {
+      "description": "Bot Name",
+      "value": "YTREX_KSH-MD1"
+    },
+    "NODE_ENV": {
+      "description": "Environment",
+      "value": "production"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest"
+    }
+  ],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "stack": "heroku-22"
+}
